@@ -1,5 +1,10 @@
 # client/client.py
 
+from post_quantum_crypto import PostQuantumCrypto
+
+my_role = None
+MODE = "CLASSICAL"
+
 import socket
 import threading
 import struct
@@ -8,10 +13,16 @@ from classical_crypto import ClassicalCrypto
 
 HOST = "127.0.0.1"
 PORT = 5000
-
-crypto = ClassicalCrypto()
 secure_channel_established = False
-my_public_key = crypto.get_public_bytes()
+if MODE == "CLASSICAL":
+    crypto = ClassicalCrypto()
+else:
+    crypto = PostQuantumCrypto()
+
+if MODE == "CLASSICAL":
+    my_public_key = crypto.get_public_bytes()
+elif MODE == "PQC":
+    my_public_key = crypto.generate_keypair()
 
 
 def send_packet(sock, msg_type, payload):
@@ -37,28 +48,51 @@ def receive_messages(sock):
         msg_type = header[:4]
         length = struct.unpack("!I", header[4:])[0]
         payload = receive_exact(sock, length)
+        if msg_type == b'ROLE':
+            my_role = payload.decode()
+            print("[*] Assigned role:", my_role)
+        if MODE == "CLASSICAL":
 
-        if msg_type == b'KEY_':
+            if msg_type == b'KEY_':
 
-            if payload == my_public_key:
-                continue
+                if payload == my_public_key:
+                    continue
 
-            crypto.derive_shared_key(payload)
-            secure_channel_established = True
-            print("\n[*] Secure channel established (Classical ECDH + AES-GCM)")
-            print("You: ", end="", flush=True)
+                crypto.derive_shared_key(payload)
+                secure_channel_established = True
+                print("\n[*] Secure channel established (Classical ECDH + AES-GCM)")
+                print("You: ", end="", flush=True)
 
-        elif msg_type == b'MSG_':
+        elif MODE == "PQC":
+
+            if msg_type == b'KYPK' and my_role == "RESP":
+
+                ciphertext = crypto.encapsulate(payload)
+                send_packet(sock, b'KYCT', ciphertext)
+
+                secure_channel_established = True
+                print("\n[*] Secure channel established (Kyber512 + AES-GCM)")
+                print("You: ", end="", flush=True)
+
+            elif msg_type == b'KYCT' and my_role == "INIT":
+
+                crypto.decapsulate(payload)
+
+                secure_channel_established = True
+                print("\n[*] Secure channel established (Kyber512 + AES-GCM)")
+                print("You: ", end="", flush=True)
+        # Message phase (common to both modes)
+        if msg_type == b'MSG_':
 
             if not secure_channel_established:
                 continue
 
             decrypted = crypto.decrypt(payload)
 
-            # Clean print formatting
-            print("\r" + " " * 80, end="")   # Clear current line
+            print("\r" + " " * 80, end="")
             print("\rPeer:", decrypted)
             print("You: ", end="", flush=True)
+                
 
 
 def main():
@@ -68,7 +102,13 @@ def main():
     sock.connect((HOST, PORT))
     print("[*] Connected to server")
 
-    send_packet(sock, b'KEY_', my_public_key)
+    if MODE == "PQC" and my_role == "INIT":
+        send_packet(sock, b'KYPK', my_public_key)
+    if MODE == "CLASSICAL":
+        send_packet(sock, b'KEY_', my_public_key)
+
+    elif MODE == "PQC":
+        send_packet(sock, b'KYPK', my_public_key)
 
     thread = threading.Thread(target=receive_messages, args=(sock,))
     thread.daemon = True

@@ -1,8 +1,9 @@
 # server/relay_server.py
 
+import struct
 import socket
 import threading
-
+client_roles = {}
 HOST = "127.0.0.1"
 PORT = 5000
 
@@ -12,7 +13,12 @@ public_keys = {}
 def handle_client(conn, addr):
     print(f"[+] New connection from {addr}")
     clients.append(conn)
-
+    if len(clients) == 1:
+        client_roles[conn] = b'INIT'
+        conn.sendall(b'ROLE' + struct.pack("!I", 4) + b'INIT')
+    elif len(clients) == 2:
+        client_roles[conn] = b'RESP'
+        conn.sendall(b'ROLE' + struct.pack("!I", 4) + b'RESP')
     try:
         while True:
             data = conn.recv(4096)
@@ -20,7 +26,7 @@ def handle_client(conn, addr):
                 break
 
             # Store KEY_ messages
-            if data[:4] == b'KEY_':
+            if data[:4] in [b'KEY_', b'KYPK']:
                 public_keys[conn] = data
 
                 # If two clients connected, exchange keys
