@@ -1,55 +1,69 @@
-# server/relay_server.py
-
-import struct
 import socket
 import threading
-client_roles = {}
+import struct
+
 HOST = "127.0.0.1"
 PORT = 5000
 
 clients = []
-public_keys = {}
+lock = threading.Lock()
+
+
+def send_packet(sock, msg_type, payload):
+    header = msg_type + struct.pack("!I", len(payload))
+    sock.sendall(header + payload)
+
 
 def handle_client(conn, addr):
+    global clients
     print(f"[+] New connection from {addr}")
-    clients.append(conn)
-    if len(clients) == 1:
-        client_roles[conn] = b'INIT'
-        conn.sendall(b'ROLE' + struct.pack("!I", 4) + b'INIT')
-    elif len(clients) == 2:
-        client_roles[conn] = b'RESP'
-        conn.sendall(b'ROLE' + struct.pack("!I", 4) + b'RESP')
+
+    with lock:
+        clients.append(conn)
+
+        # Assign roles ONLY when two clients are connected
+        if len(clients) == 2:
+            print("[SERVER] Two clients connected. Assigning roles.")
+            send_packet(clients[0], b'ROLE', b'INIT')
+            send_packet(clients[1], b'ROLE', b'RESP')
+
     try:
         while True:
-            data = conn.recv(4096)
-            if not data:
+            # Read header (8 bytes)
+            header = conn.recv(8)
+            if not header:
                 break
 
-            # Store KEY_ messages
-            if data[:4] in [b'KEY_', b'KYPK']:
-                public_keys[conn] = data
+            msg_type = header[:4]
+            length = struct.unpack("!I", header[4:])[0]
 
-                # If two clients connected, exchange keys
-                if len(public_keys) == 2:
-                    for c in clients:
-                        for other_conn, key in public_keys.items():
-                            if c != other_conn:
-                                c.sendall(key)
+            # Read exact payload
+            payload = b''
+            while len(payload) < length:
+                chunk = conn.recv(length - len(payload))
+                if not chunk:
+                    break
+                payload += chunk
 
-            else:
-                # Forward normal messages
+            packet = header + payload
+
+            # Forward packet to other client(s)
+            with lock:
                 for client in clients:
                     if client != conn:
-                        client.sendall(data)
+                        client.sendall(packet)
 
-    except:
-        pass
+    except Exception as e:
+        print("Server error:", e)
+
     finally:
+        with lock:
+            if conn in clients:
+                clients.remove(conn)
+
         print(f"[-] Connection closed {addr}")
-        clients.remove(conn)
-        if conn in public_keys:
-            del public_keys[conn]
         conn.close()
+
 
 def start_server():
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -61,6 +75,7 @@ def start_server():
         conn, addr = server.accept()
         thread = threading.Thread(target=handle_client, args=(conn, addr))
         thread.start()
+
 
 if __name__ == "__main__":
     start_server()
