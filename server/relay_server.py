@@ -8,7 +8,6 @@ PORT = 5000
 clients = []
 lock = threading.Lock()
 
-
 def send_packet(sock, msg_type, payload):
     header = msg_type + struct.pack("!I", len(payload))
     sock.sendall(header + payload)

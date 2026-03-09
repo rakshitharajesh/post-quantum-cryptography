@@ -1,2 +1,6 @@
 venv/
 liboqs/
+chat_metrics.csv
+test_kyber.py
+client/__pycache__/
+*.p
