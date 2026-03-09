@@ -1,1 +1,2 @@
-Comparing classical(hkdf on ecdh), post quantum(kyber-512) and hybrid cryptography(hkdf on (hkdf on ecdh + kyber-512))
+- Comparing classical(hkdf on ecdh), post quantum(kyber-512) and hybrid cryptography(hkdf on (hkdf on ecdh + kyber-512))
+- metrics : message_length,keygen_time,key_exchange_time,key_derivation_time,encrypt_time,decrypt_time,ciphertext_size,total_messages,total_bytes_sent,session_duration, bandwidth (bytes / sec)
